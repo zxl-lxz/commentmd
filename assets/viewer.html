@@ -294,6 +294,8 @@
       const idx = state.comments.findIndex((x) => x.id === id);
       if (idx < 0) return;
       state.comments.splice(idx, 1);
+      state.comments.forEach((c, i) => { c.id = "c" + (i + 1); });
+      state.nextId = state.comments.length + 1;
       updateCounter();
       renderSidebar();
       renderHighlights();
