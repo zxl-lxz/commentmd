@@ -46,7 +46,6 @@ class FindFreePortTests(unittest.TestCase):
 
 
 import json
-import tempfile
 
 from scripts.serve import build_page_data, resolve_output_path, inject_template
 
@@ -90,8 +89,16 @@ class InjectTemplateTests(unittest.TestCase):
     def test_data_json_encodes_specials(self):
         html = "<html><head></head></html>"
         out = inject_template(html, {"md_content": "</script>"}, "server")
-        # </script> must not appear literally inside the JS string
-        self.assertNotIn("</script>", out[: out.index("</head>")])
+        head_close = out.index("</head>")
+        pre = out[:head_close]
+        # The escaped form must appear (proves payload escaping ran)
+        self.assertIn("<\\/script>", pre)
+        # The unescaped payload literal must NOT appear before </head>
+        # (find the wrapper open, then check no </script> occurs between the
+        #  wrapper open and its matching close in a way that would truncate).
+        # Concretely: the substring "</script>" appears exactly once before
+        # </head> — that's our own wrapper closer, not a payload injection.
+        self.assertEqual(pre.count("</script>"), 1)
 
 
 if __name__ == "__main__":

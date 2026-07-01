@@ -53,5 +53,5 @@ def inject_template(html_template: str, data: dict, mode: str) -> str:
     block = f'window.__DATA__ = {payload};\nwindow.__MODE__ = {mode_js};'
     if _SENTINEL in html_template:
         return html_template.replace(_SENTINEL, block)
-    injection = f'<script>\n{block}\n</script\n>\n</head>'
+    injection = f'<script>\n{block}\n</script>\n</head>'
     return html_template.replace("</head>", injection, 1)
