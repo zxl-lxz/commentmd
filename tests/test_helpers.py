@@ -45,5 +45,54 @@ class FindFreePortTests(unittest.TestCase):
                 find_free_port(busy_port, busy_port)
 
 
+import json
+import tempfile
+
+from scripts.serve import build_page_data, resolve_output_path, inject_template
+
+
+class BuildPageDataTests(unittest.TestCase):
+    def test_returns_expected_keys(self):
+        fixture = Path(__file__).parent / "fixtures" / "sample.md"
+        data = build_page_data(fixture)
+        self.assertEqual(data["md_name"], "sample.md")
+        self.assertEqual(data["md_file"], str(fixture.resolve()))
+        self.assertIn("# 技术方案示例", data["md_content"])
+        self.assertEqual(len(data["md_sha256"]), 64)
+
+
+class ResolveOutputPathTests(unittest.TestCase):
+    def test_default_replaces_suffix(self):
+        p = Path("/tmp/plan.md")
+        self.assertEqual(resolve_output_path(p, None), Path("/tmp/plan.comments.json"))
+
+    def test_explicit_out_wins(self):
+        p = Path("/tmp/plan.md")
+        override = Path("/tmp/x.json")
+        self.assertEqual(resolve_output_path(p, override), override)
+
+
+class InjectTemplateTests(unittest.TestCase):
+    def test_replaces_sentinel(self):
+        html = "<html><head><script>/* __DATA_INJECTION__ */</script></head></html>"
+        out = inject_template(html, {"md_name": "x"}, "server")
+        self.assertIn('window.__DATA__ =', out)
+        self.assertIn('"md_name": "x"', out)
+        self.assertIn('window.__MODE__ = "server"', out)
+        self.assertNotIn("__DATA_INJECTION__", out)
+
+    def test_falls_back_to_head_close(self):
+        html = "<html><head></head><body></body></html>"
+        out = inject_template(html, {"md_name": "x"}, "static")
+        self.assertIn('window.__MODE__ = "static"', out)
+        self.assertLess(out.index("window.__DATA__"), out.index("</head>"))
+
+    def test_data_json_encodes_specials(self):
+        html = "<html><head></head></html>"
+        out = inject_template(html, {"md_content": "</script>"}, "server")
+        # </script> must not appear literally inside the JS string
+        self.assertNotIn("</script>", out[: out.index("</head>")])
+
+
 if __name__ == "__main__":
     unittest.main()
