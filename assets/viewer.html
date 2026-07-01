@@ -47,7 +47,11 @@
   <script>
     const DATA = window.__DATA__ || { md_file: "", md_name: "(no data)", md_content: "", md_sha256: "" };
     const MODE = window.__MODE__ || "server";
+    const PREFIX_LEN = 32;
+    const SUFFIX_LEN = 32;
     const state = { comments: [], nextId: 1 };
+    let activeSelection = null;   // { range, exact, prefix, suffix }
+    let floater = null;
 
     document.getElementById("filename").textContent = DATA.md_name;
     document.getElementById("app").innerHTML = marked.parse(DATA.md_content || "");
@@ -63,6 +67,86 @@
       el.style.display = "block";
       setTimeout(() => (el.style.display = "none"), 4000);
     }
+
+    function getAppText() {
+      return document.getElementById("app").textContent;
+    }
+
+    function nodeOffsetInApp(node, offset) {
+      // Walk the app subtree in DOM order, summing text lengths until we reach node.
+      const app = document.getElementById("app");
+      const walker = document.createTreeWalker(app, NodeFilter.SHOW_TEXT);
+      let total = 0;
+      let current;
+      while ((current = walker.nextNode())) {
+        if (current === node) return total + offset;
+        total += current.nodeValue.length;
+      }
+      return -1;
+    }
+
+    function getSelectionInRenderArea() {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+      const range = sel.getRangeAt(0);
+      const app = document.getElementById("app");
+      if (!app.contains(range.startContainer) || !app.contains(range.endContainer)) return null;
+      const exact = sel.toString();
+      if (!exact.trim()) return null;
+      const startOffset = nodeOffsetInApp(range.startContainer, range.startOffset);
+      const fullText = getAppText();
+      // startOffset uses raw textContent; approximate but sufficient for prefix/suffix window
+      let idx = startOffset;
+      if (idx < 0) idx = fullText.indexOf(exact);
+      const prefix = idx > 0 ? fullText.slice(Math.max(0, idx - PREFIX_LEN), idx) : "";
+      const endIdx = idx + exact.length;
+      const suffix = endIdx < fullText.length ? fullText.slice(endIdx, endIdx + SUFFIX_LEN) : "";
+      return { range: range.cloneRange(), exact, prefix, suffix };
+    }
+
+    function positionFloater(range) {
+      const rects = range.getClientRects();
+      if (!rects.length) return;
+      const last = rects[rects.length - 1];
+      floater.style.top = (window.scrollY + last.bottom + 6) + "px";
+      floater.style.left = (window.scrollX + last.right - 60) + "px";
+    }
+
+    function ensureFloater() {
+      if (floater) return floater;
+      floater = document.createElement("button");
+      floater.textContent = "+ 评论";
+      floater.style.cssText = "position:absolute;z-index:50;background:#2563eb;color:#fff;border:0;padding:4px 10px;border-radius:4px;font-size:12px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,0.2);";
+      floater.addEventListener("mousedown", (e) => e.preventDefault()); // keep selection alive
+      floater.addEventListener("click", onFloaterClick);
+      document.body.appendChild(floater);
+      return floater;
+    }
+
+    function hideFloater() {
+      if (floater) floater.style.display = "none";
+    }
+
+    function onFloaterClick() {
+      if (!activeSelection) return;
+      // Comment save UI wired up in Task 8; for now just log.
+      console.log("selected:", activeSelection.exact);
+      hideFloater();
+    }
+
+    document.addEventListener("mouseup", () => {
+      const s = getSelectionInRenderArea();
+      if (!s) { hideFloater(); activeSelection = null; return; }
+      activeSelection = s;
+      ensureFloater();
+      floater.style.display = "block";
+      positionFloater(s.range);
+    });
+
+    document.addEventListener("mousedown", (e) => {
+      if (floater && floater.contains(e.target)) return;
+      hideFloater();
+    });
 
     async function submit() {
       const payload = { md_file: DATA.md_file, md_sha256: DATA.md_sha256, comments: state.comments };
