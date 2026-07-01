@@ -55,3 +55,129 @@ def inject_template(html_template: str, data: dict, mode: str) -> str:
         return html_template.replace(_SENTINEL, block)
     injection = f'<script>\n{block}\n</script>\n</head>'
     return html_template.replace("</head>", injection, 1)
+
+
+import argparse
+import sys
+import threading
+import time
+import webbrowser
+from datetime import datetime, timezone
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+
+DEFAULT_PORT_START = 3118
+DEFAULT_PORT_END = 3128
+
+
+def write_output_json(payload: dict, out_path: Path, md_sha256_initial: str) -> dict:
+    comments = payload.get("comments") or []
+    result = {
+        "schema_version": 1,
+        "md_file": payload.get("md_file", ""),
+        "md_sha256": md_sha256_initial,
+        "md_changed_during_review": payload.get("md_sha256") != md_sha256_initial,
+        "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+        "comment_count": len(comments),
+        "comments": comments,
+    }
+    out_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    return result
+
+
+class _Handler(BaseHTTPRequestHandler):
+    # attributes injected via server.context
+    def _ctx(self):
+        return self.server.context  # type: ignore[attr-defined]
+
+    def log_message(self, format, *args):  # silence default access log
+        pass
+
+    def do_GET(self):
+        if self.path in ("/", "/index.html"):
+            body = self._ctx()["html"].encode("utf-8")
+            self.send_response(200)
+            self.send_header("content-type", "text/html; charset=utf-8")
+            self.send_header("content-length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        self.send_error(404)
+
+    def do_POST(self):
+        if self.path != "/api/finish":
+            self.send_error(404)
+            return
+        length = int(self.headers.get("content-length", "0"))
+        try:
+            payload = json.loads(self.rfile.read(length))
+        except json.JSONDecodeError as e:
+            self.send_error(400, f"bad json: {e}")
+            return
+        ctx = self._ctx()
+        result = write_output_json(payload, ctx["out_path"], ctx["md_sha256"])
+        body = json.dumps({"ok": True, "path": str(ctx["out_path"]), "comment_count": result["comment_count"]}).encode("utf-8")
+        self.send_response(200)
+        self.send_header("content-type", "application/json")
+        self.send_header("content-length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+        threading.Thread(target=self._shutdown_soon, daemon=True).start()
+
+    def _shutdown_soon(self):
+        time.sleep(0.2)
+        self.server.shutdown()
+
+
+def _load_viewer_html() -> str:
+    here = Path(__file__).resolve().parent
+    return (here.parent / "assets" / "viewer.html").read_text(encoding="utf-8")
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description="commentmd - comment on a markdown file in the browser.")
+    parser.add_argument("md_path", type=Path, help="Path to the markdown file to review.")
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT_START)
+    parser.add_argument("--out", type=Path, default=None)
+    parser.add_argument("--no-browser", action="store_true")
+    args = parser.parse_args(argv)
+
+    md_path = args.md_path.resolve()
+    if not md_path.is_file():
+        print(f"error: not a file: {md_path}", file=sys.stderr)
+        return 1
+
+    data = build_page_data(md_path)
+    out_path = resolve_output_path(md_path, args.out).resolve()
+    html_template = _load_viewer_html()
+    html = inject_template(html_template, data, mode="server")
+
+    try:
+        port = find_free_port(args.port, DEFAULT_PORT_END)
+    except RuntimeError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+    server = HTTPServer(("127.0.0.1", port), _Handler)
+    server.context = {"html": html, "out_path": out_path, "md_sha256": data["md_sha256"]}  # type: ignore[attr-defined]
+
+    url = f"http://127.0.0.1:{port}/"
+    print(f"commentmd serving {md_path.name} at {url}")
+    print(f"  output: {out_path}")
+    if not args.no_browser:
+        webbrowser.open(url)
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("interrupted; no JSON written.", file=sys.stderr)
+        return 130
+    finally:
+        server.server_close()
+
+    print(f"wrote {out_path}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
