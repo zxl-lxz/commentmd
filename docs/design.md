@@ -1,8 +1,8 @@
 # commentmd 设计方案
 
-`commentmd` 是一个 Qoder Skill：Agent 生成 Markdown 文档（技术方案、设计稿、README 等）后，通过一条 slash 命令让人类在浏览器里**划词评论**，提交后返回**结构化 JSON**，Agent 据此逐条响应并修订原文。
+`commentmd` 是一个通用的 AI Agent Skill：Agent 生成 Markdown 文档（技术方案、设计稿、README 等）后，通过一条 slash 命令让人类在浏览器里**划词评论**，提交后返回**结构化 JSON**，Agent 据此逐条响应并修订原文。
 
-版本：v0.1.4  ·  最后更新：2026-07-01
+版本：v1.0.0  ·  最后更新：2026-07-01
 
 ## 1. 目标
 
@@ -68,7 +68,7 @@
 
 ```
 commentmd/
-├── SKILL.md                # Qoder 侧的 skill 清单
+├── SKILL.md                # Skill 清单，供支持该约定的 Agent 运行时发现
 ├── scripts/
 │   └── serve.py            # HTTP server + 静态导出模式
 ├── assets/
@@ -131,7 +131,7 @@ python3 serve.py <md_path> [--port 3118] [--out PATH] [--static HTML] [--no-brow
 
 ## 5. 前端（`assets/viewer.html`）
 
-单文件，所有 CSS/JS 内联，只从 CDN 加载一个 `marked` 依赖。
+单文件，所有 CSS/JS 内联，从 CDN 加载两个依赖：`marked`（Markdown → HTML）和 `DOMPurify`（清洗 HTML 中的可执行属性）。
 
 ### 布局
 
@@ -216,31 +216,42 @@ python3 serve.py <md_path> [--port 3118] [--out PATH] [--static HTML] [--no-brow
 | md 文件在审阅期间被外部修改 | 提交时 `md_changed_during_review: true`，Agent 需自行判断如何合并 |
 | 划选跨越渲染区外的元素（如侧栏） | 忽略该 mouseup，不弹按钮 |
 | POST body 非合法 JSON | 400，server 保持运行 |
+| POST `Origin` 缺失或不匹配 | 403，server 保持运行 |
+| POST `Content-Type` 非 `application/json` | 415，server 保持运行 |
+| POST body > 1 MiB | 413，server 保持运行 |
 | 静态模式提交 | 浏览器下载 `<md名>.comments.json`，用户告知 Agent 文件路径 |
 
-## 8. 已知限制（v0.2 待办）
+## 8. 安全边界
 
-**安全（高优先级）**
+`commentmd` 假设运行在**单机、单用户**的开发者机器上。默认威胁模型：
 
-- **XSS via marked**：`marked.parse(md_content)` → `innerHTML` 会执行原生 HTML 里的事件处理器（如 `<img onerror=...>`）。当前场景是「用户审阅自己或自己 Agent 生成的 md」，风险较低；若要接收不受信来源的 md，必须引入 DOMPurify。
-- **`/api/finish` 无 Origin/CSRF 校验**：审阅期间访问的其他网站可以跨源 POST 到 `127.0.0.1:<port>`，写攻击者选定的 `md_file` 字段并触发 shutdown。DNS rebinding 也适用。缓解：校验 `Origin` header + `Content-Type: application/json`。
-- **`md_file` 来自客户端 payload**：应改为从服务端 context 取，客户端不参与该字段。
+**已防御**
 
-**功能 / UX**
+- **CSRF / DNS rebinding**：`/api/finish` 校验请求头 `Origin` 必须等于本次运行的 `http://127.0.0.1:<port>`；DNS rebinding 攻击虽能改 Host，改不了 Origin。
+- **简单跨源 POST 绕过预检**：`Content-Type` 必须是 `application/json`，从而强制触发 CORS 预检；`text/plain` 和 `application/x-www-form-urlencoded` 的简单请求会被拒。
+- **Markdown 里的 HTML 事件处理器**：前端在把 `marked` 渲染结果塞进 `innerHTML` 之前，先过 `DOMPurify.sanitize` 去掉所有可执行属性。
+- **注入 `<script>` breakout**：`inject_template` 把注入到 `<script>` 里的 JSON payload 中的 `</` 替换成 `<\/`，md 里的 `</script>` 不能提前闭合注入块。
+- **客户端伪造 `md_file`**：输出 JSON 里的 `md_file` 由服务端上下文写入，忽略客户端 payload；单元测试 `test_ignores_client_supplied_md_file` 覆盖此路径。
+- **POST body 泛洪**：body 上限 1 MiB，超限 413。
 
-- `--static` 模式仍依赖 CDN 加载 marked，离线打不开。要真正离线需把 marked 内联进 HTML。
+**未防御 / 假设不成立时的风险**
+
+- 多用户共享机器：其他本机用户可以直接访问 `127.0.0.1:<port>`。
+- 用户在审阅期间从命令行主动 `curl` 攻击性 payload。这些访问自带正确 `Origin` 也能通过校验。
+- DOMPurify 或 marked 自身的 0-day。
+
+## 9. 已知限制
+
+- `--static` 模式仍从 CDN 加载 marked + DOMPurify，离线首次渲染需联网。要真正离线需把两者内联进 HTML。
 - 「编辑」按钮用浏览器 `prompt()`，多行评论会被压成一行。应改为跟「新增」相同的 popover。
 - 浏览器阻止 `window.close()` 时只能提示手动关，无法自动关 tab。
-
-**代码风格**
-
 - `scripts/serve.py` 里 `import` 语句是随着任务追加时散布在文件中间的，不符合 PEP 8。收敛到顶部即可。
 
-## 9. 测试策略
+## 10. 测试策略
 
 **单元测试**（`tests/test_helpers.py`，`python3 -m unittest discover -s tests -v`）
 
-覆盖所有纯函数 helper：`compute_sha256`、`find_free_port`（含忙碌端口跳过、全占抛错）、`build_page_data`、`resolve_output_path`、`inject_template`（含 `</script>` 转义验证）、`write_output_json`（含 sha 匹配、sha 不匹配、真实文件被修改三个场景）、`write_static_html`。当前 14/14 通过。
+覆盖所有纯函数 helper：`compute_sha256`、`find_free_port`（含忙碌端口跳过、全占抛错）、`build_page_data`、`resolve_output_path`、`inject_template`（含 `</script>` 转义验证）、`write_output_json`（含 sha 匹配、sha 不匹配、真实文件被修改、客户端伪造 md_file 被忽略四个场景）、`write_static_html`。当前 15/15 通过。
 
 **手工冒烟**
 
@@ -251,8 +262,9 @@ python3 serve.py <md_path> [--port 3118] [--out PATH] [--static HTML] [--no-brow
 - 端口冲突：自动切换到 3119。
 - `--static` 模式：HTML 独立可用，下载 JSON 内容正确。
 - 文件在审阅期间被修改：`md_changed_during_review: true`。
+- 跨源 POST 被拒（curl 带错误 Origin → 403；缺 Origin → 403；错误 Content-Type → 415）。
 
-## 10. 备选方案
+## 11. 备选方案
 
 选型阶段考虑过的其他做法：
 
