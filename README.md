@@ -1,6 +1,10 @@
 # commentmd
 
+[![test](https://github.com/zxl-lxz/commentmd/actions/workflows/test.yml/badge.svg)](https://github.com/zxl-lxz/commentmd/actions/workflows/test.yml)
+
 Highlight-and-comment on a local Markdown file in the browser. Submit, and the tool writes a structured JSON of your comments — ready for an AI agent to read and respond to.
+
+![demo](./docs/demo.gif)
 
 Designed as an agent **skill**: when an agent generates a `.md` (design doc, tech spec, PR description) and needs human review, it invokes `commentmd`, waits for your feedback, and reads back the JSON.
 

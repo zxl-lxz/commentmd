@@ -1,6 +1,10 @@
 # commentmd
 
+[![test](https://github.com/zxl-lxz/commentmd/actions/workflows/test.yml/badge.svg)](https://github.com/zxl-lxz/commentmd/actions/workflows/test.yml)
+
 在浏览器里对本地 Markdown 文件做**划词评论**，提交后生成结构化 JSON——供 AI Agent 读取并逐条响应。
+
+![demo](./docs/demo.gif)
 
 作为 Agent **skill** 设计：Agent 生成一份 `.md`（技术方案、设计稿、PR 描述）需要人类审阅时，触发 `commentmd`，等你写完评论后读回 JSON。
 
