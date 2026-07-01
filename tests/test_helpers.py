@@ -33,9 +33,10 @@ class FindFreePortTests(unittest.TestCase):
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
                 probe.bind(("127.0.0.1", 0))
                 _, next_free = probe.getsockname()
-            result = find_free_port(busy_port, next_free)
+            lo, hi = sorted((busy_port, next_free))
+            result = find_free_port(lo, hi)
             self.assertNotEqual(result, busy_port)
-            self.assertTrue(busy_port <= result <= next_free)
+            self.assertTrue(lo <= result <= hi)
 
     def test_raises_when_all_busy(self):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as busy:
