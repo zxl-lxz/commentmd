@@ -110,17 +110,17 @@ class WriteOutputJsonTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "a.comments.json"
             payload = {
-                "md_file": "/x/a.md",
                 "comments": [
                     {"id": "c1", "quote": "q", "prefix": "", "suffix": "", "comment": "hi",
                      "created_at": "2026-07-01T00:00:00Z"},
                 ],
             }
-            result = write_output_json(payload, out, md_sha256_initial="abc", md_sha256_current="abc")
+            result = write_output_json(payload, out, md_file="/x/a.md", md_sha256_initial="abc", md_sha256_current="abc")
             written = json.loads(out.read_text())
             self.assertEqual(written["schema_version"], 1)
             self.assertEqual(written["comment_count"], 1)
             self.assertFalse(written["md_changed_during_review"])
+            self.assertEqual(written["md_file"], "/x/a.md")
             self.assertEqual(written["md_sha256"], "abc")
             self.assertEqual(written["comments"][0]["quote"], "q")
             self.assertEqual(result, written)
@@ -128,8 +128,8 @@ class WriteOutputJsonTests(unittest.TestCase):
     def test_flags_sha_mismatch_when_current_differs(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "a.comments.json"
-            payload = {"md_file": "/x/a.md", "comments": []}
-            write_output_json(payload, out, md_sha256_initial="abc", md_sha256_current="def")
+            payload = {"comments": []}
+            write_output_json(payload, out, md_file="/x/a.md", md_sha256_initial="abc", md_sha256_current="def")
             written = json.loads(out.read_text())
             self.assertTrue(written["md_changed_during_review"])
             self.assertEqual(written["comment_count"], 0)
@@ -144,10 +144,19 @@ class WriteOutputJsonTests(unittest.TestCase):
             current = compute_sha256(md)
             self.assertNotEqual(initial, current)
             out = Path(tmp) / "plan.comments.json"
-            payload = {"md_file": str(md), "comments": []}
-            write_output_json(payload, out, md_sha256_initial=initial, md_sha256_current=current)
+            payload = {"comments": []}
+            write_output_json(payload, out, md_file=str(md), md_sha256_initial=initial, md_sha256_current=current)
             written = json.loads(out.read_text())
             self.assertTrue(written["md_changed_during_review"])
+
+    def test_ignores_client_supplied_md_file(self):
+        """Server-supplied md_file must win; a spoofed payload cannot rename the file."""
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "a.comments.json"
+            payload = {"md_file": "/etc/passwd", "comments": []}
+            write_output_json(payload, out, md_file="/real/path.md", md_sha256_initial="x", md_sha256_current="x")
+            written = json.loads(out.read_text())
+            self.assertEqual(written["md_file"], "/real/path.md")
 
 
 from scripts.serve import write_static_html

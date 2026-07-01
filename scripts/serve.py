@@ -70,11 +70,11 @@ DEFAULT_PORT_START = 3118
 DEFAULT_PORT_END = 3128
 
 
-def write_output_json(payload: dict, out_path: Path, md_sha256_initial: str, md_sha256_current: str) -> dict:
+def write_output_json(payload: dict, out_path: Path, md_file: str, md_sha256_initial: str, md_sha256_current: str) -> dict:
     comments = payload.get("comments") or []
     result = {
         "schema_version": 1,
-        "md_file": payload.get("md_file", ""),
+        "md_file": md_file,
         "md_sha256": md_sha256_initial,
         "md_changed_during_review": md_sha256_current != md_sha256_initial,
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
@@ -108,18 +108,35 @@ class _Handler(BaseHTTPRequestHandler):
         if self.path != "/api/finish":
             self.send_error(404)
             return
+        ctx = self._ctx()
+        # Reject cross-origin CSRF and DNS-rebinding attempts. Simple POSTs
+        # from other pages can hit 127.0.0.1 but Origin is always set by the
+        # browser to their own origin, never to ours. Also blocks
+        # application/x-www-form-urlencoded and text/plain, which are simple
+        # requests that skip preflight.
+        origin = self.headers.get("origin")
+        expected = f"http://127.0.0.1:{ctx['port']}"
+        if origin != expected:
+            self.send_error(403, "bad origin")
+            return
+        ctype = (self.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
+        if ctype != "application/json":
+            self.send_error(415, "content-type must be application/json")
+            return
         length = int(self.headers.get("content-length", "0"))
+        if length > 1_048_576:
+            self.send_error(413, "payload too large")
+            return
         try:
             payload = json.loads(self.rfile.read(length))
         except json.JSONDecodeError as e:
             self.send_error(400, f"bad json: {e}")
             return
-        ctx = self._ctx()
         try:
             current_sha = compute_sha256(ctx["md_path"])
         except OSError:
             current_sha = ""  # file gone; treat as changed
-        result = write_output_json(payload, ctx["out_path"], ctx["md_sha256"], current_sha)
+        result = write_output_json(payload, ctx["out_path"], ctx["md_file"], ctx["md_sha256"], current_sha)
         body = json.dumps({"ok": True, "path": str(ctx["out_path"]), "comment_count": result["comment_count"]}).encode("utf-8")
         self.send_response(200)
         self.send_header("content-type", "application/json")
@@ -176,7 +193,14 @@ def main(argv=None) -> int:
         return 1
 
     server = HTTPServer(("127.0.0.1", port), _Handler)
-    server.context = {"html": html, "out_path": out_path, "md_sha256": data["md_sha256"], "md_path": md_path}  # type: ignore[attr-defined]
+    server.context = {  # type: ignore[attr-defined]
+        "html": html,
+        "out_path": out_path,
+        "md_file": data["md_file"],
+        "md_sha256": data["md_sha256"],
+        "md_path": md_path,
+        "port": port,
+    }
 
     url = f"http://127.0.0.1:{port}/"
     print(f"commentmd serving {md_path.name} at {url}")

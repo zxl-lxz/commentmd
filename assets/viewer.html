@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <title>commentmd</title>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
   <script>/* __DATA_INJECTION__ */</script>
   <style>
     * { box-sizing: border-box; }
@@ -68,7 +69,13 @@
 
     document.getElementById("filename").textContent = DATA.md_name;
     const appEl = document.getElementById("app");
-    appEl.innerHTML = marked.parse(DATA.md_content || "");
+    const rawHtml = marked.parse(DATA.md_content || "");
+    if (typeof DOMPurify !== "undefined") {
+      appEl.innerHTML = DOMPurify.sanitize(rawHtml);
+    } else {
+      appEl.innerHTML = rawHtml;
+      console.warn("DOMPurify not loaded; rendering raw marked output. Untrusted Markdown can execute HTML event handlers.");
+    }
     const highlightsEl = document.createElement("div");
     highlightsEl.id = "highlights";
     appEl.appendChild(highlightsEl);
@@ -377,13 +384,12 @@
     }
 
     async function submit() {
-      const payload = { md_file: DATA.md_file, md_sha256: DATA.md_sha256, comments: state.comments };
       if (MODE === "server") {
         try {
           const r = await fetch("/api/finish", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify(payload),
+            body: JSON.stringify({ comments: state.comments }),
           });
           if (r.ok) {
             let count = state.comments.length;
