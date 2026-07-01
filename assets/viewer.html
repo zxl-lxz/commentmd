@@ -185,10 +185,95 @@
         return;
       }
       list.innerHTML = state.comments.map((c) => `
-        <div class="card" data-id="${c.id}" style="background:#fff;border:1px solid #e5e5e5;border-radius:6px;padding:10px;margin-bottom:10px;">
+        <div class="card" data-id="${c.id}" style="background:#fff;border:1px solid #e5e5e5;border-radius:6px;padding:10px;margin-bottom:10px;cursor:pointer;">
           <div style="font-size:12px;color:#666;border-left:3px solid #fbbf24;padding-left:8px;margin-bottom:6px;">${escapeHtml(truncate(c.quote, 80))}</div>
-          <div style="font-size:14px;white-space:pre-wrap;">${escapeHtml(c.comment)}</div>
+          <div class="body" style="font-size:14px;white-space:pre-wrap;">${escapeHtml(c.comment)}</div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px;font-size:12px;">
+            <button data-act="edit" style="background:transparent;border:0;color:#2563eb;cursor:pointer;">编辑</button>
+            <button data-act="delete" style="background:transparent;border:0;color:#ef4444;cursor:pointer;">删除</button>
+          </div>
         </div>`).join("");
+      list.querySelectorAll(".card").forEach((el) => {
+        const id = el.getAttribute("data-id");
+        el.addEventListener("click", (e) => {
+          const act = e.target.getAttribute && e.target.getAttribute("data-act");
+          if (act === "edit") { editComment(id); e.stopPropagation(); return; }
+          if (act === "delete") { deleteComment(id); e.stopPropagation(); return; }
+          scrollToComment(id);
+        });
+      });
+    }
+
+    function findQuoteRange(quote, prefix, suffix) {
+      const app = document.getElementById("app");
+      const full = app.innerText;
+      let idx = -1;
+      if (prefix) {
+        const anchor = full.indexOf(prefix + quote);
+        if (anchor >= 0) idx = anchor + prefix.length;
+      }
+      if (idx < 0) idx = full.indexOf(quote);
+      if (idx < 0) return null;
+      // Walk text nodes to convert (idx, quote.length) into a Range.
+      const walker = document.createTreeWalker(app, NodeFilter.SHOW_TEXT);
+      let cursor = 0;
+      let startNode = null, startOff = 0, endNode = null, endOff = 0;
+      const wantStart = idx, wantEnd = idx + quote.length;
+      let n;
+      while ((n = walker.nextNode())) {
+        const next = cursor + n.nodeValue.length;
+        if (startNode === null && next > wantStart) { startNode = n; startOff = wantStart - cursor; }
+        if (startNode !== null && next >= wantEnd) { endNode = n; endOff = wantEnd - cursor; break; }
+        cursor = next;
+      }
+      if (!startNode || !endNode) return null;
+      const range = document.createRange();
+      range.setStart(startNode, startOff);
+      range.setEnd(endNode, endOff);
+      return range;
+    }
+
+    function scrollToComment(id) {
+      const c = state.comments.find((x) => x.id === id);
+      if (!c) return;
+      const range = findQuoteRange(c.quote, c.prefix, c.suffix);
+      if (!range) { showStatus("找不到引用位置：" + truncate(c.quote, 40), false); return; }
+      const rect = range.getBoundingClientRect();
+      window.scrollTo({ top: window.scrollY + rect.top - 120, behavior: "smooth" });
+      flashRange(range);
+    }
+
+    function flashRange(range) {
+      const rects = range.getClientRects();
+      const layer = document.createElement("div");
+      layer.style.cssText = "position:absolute;z-index:5;pointer-events:none;opacity:1;transition:opacity 1.2s;";
+      document.body.appendChild(layer);
+      for (const r of rects) {
+        const box = document.createElement("div");
+        box.style.cssText = `position:absolute;background:#fde68a;opacity:0.85;transition:opacity 1.2s;top:${window.scrollY + r.top}px;left:${window.scrollX + r.left}px;width:${r.width}px;height:${r.height}px;border-radius:2px;`;
+        layer.appendChild(box);
+      }
+      requestAnimationFrame(() => { layer.style.opacity = "0"; });
+      setTimeout(() => layer.remove(), 1400);
+    }
+
+    function editComment(id) {
+      const c = state.comments.find((x) => x.id === id);
+      if (!c) return;
+      const next = prompt("编辑评论：", c.comment);
+      if (next === null) return;
+      const trimmed = next.trim();
+      if (!trimmed) return;
+      c.comment = trimmed;
+      renderSidebar();
+    }
+
+    function deleteComment(id) {
+      const idx = state.comments.findIndex((x) => x.id === id);
+      if (idx < 0) return;
+      state.comments.splice(idx, 1);
+      updateCounter();
+      renderSidebar();
     }
 
     document.addEventListener("mouseup", () => {
