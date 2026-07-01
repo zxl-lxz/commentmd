@@ -129,9 +129,66 @@
 
     function onFloaterClick() {
       if (!activeSelection) return;
-      // Comment save UI wired up in Task 8; for now just log.
-      console.log("selected:", activeSelection.exact);
+      openPopover(activeSelection);
+    }
+
+    function newCommentId() { return "c" + (state.nextId++); }
+
+    function nowIso() { return new Date().toISOString(); }
+
+    function openPopover(selection) {
       hideFloater();
+      const rects = selection.range.getClientRects();
+      const last = rects[rects.length - 1];
+      const pop = document.createElement("div");
+      pop.style.cssText = "position:absolute;z-index:60;background:#fff;border:1px solid #d0d0d0;border-radius:6px;padding:10px;width:280px;box-shadow:0 4px 16px rgba(0,0,0,0.15);";
+      pop.style.top = (window.scrollY + last.bottom + 6) + "px";
+      pop.style.left = (window.scrollX + Math.max(20, last.right - 280)) + "px";
+      pop.innerHTML = `
+        <div style="font-size:12px;color:#666;margin-bottom:6px;">${escapeHtml(truncate(selection.exact, 60))}</div>
+        <textarea rows="3" style="width:100%;box-sizing:border-box;font: inherit;padding:6px;border:1px solid #ccc;border-radius:4px;resize:vertical;" placeholder="写下你的意见..."></textarea>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px;">
+          <button data-act="cancel" style="background:#eee;border:0;padding:6px 12px;border-radius:4px;cursor:pointer;">取消</button>
+          <button data-act="save" style="background:#2563eb;color:#fff;border:0;padding:6px 12px;border-radius:4px;cursor:pointer;">保存</button>
+        </div>`;
+      document.body.appendChild(pop);
+      const ta = pop.querySelector("textarea");
+      ta.focus();
+      pop.addEventListener("mousedown", (e) => e.stopPropagation());
+      pop.querySelector("[data-act=cancel]").addEventListener("click", () => pop.remove());
+      pop.querySelector("[data-act=save]").addEventListener("click", () => {
+        const text = ta.value.trim();
+        if (!text) { ta.focus(); return; }
+        const comment = {
+          id: newCommentId(),
+          quote: selection.exact,
+          prefix: selection.prefix,
+          suffix: selection.suffix,
+          comment: text,
+          created_at: nowIso(),
+        };
+        state.comments.push(comment);
+        updateCounter();
+        renderSidebar();
+        pop.remove();
+        window.getSelection().removeAllRanges();
+      });
+    }
+
+    function escapeHtml(s) { return s.replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+    function truncate(s, n) { return s.length > n ? s.slice(0, n) + "…" : s; }
+
+    function renderSidebar() {
+      const list = document.getElementById("comments-list");
+      if (state.comments.length === 0) {
+        list.innerHTML = '<div class="empty">选中文本以添加评论</div>';
+        return;
+      }
+      list.innerHTML = state.comments.map((c) => `
+        <div class="card" data-id="${c.id}" style="background:#fff;border:1px solid #e5e5e5;border-radius:6px;padding:10px;margin-bottom:10px;">
+          <div style="font-size:12px;color:#666;border-left:3px solid #fbbf24;padding-left:8px;margin-bottom:6px;">${escapeHtml(truncate(c.quote, 80))}</div>
+          <div style="font-size:14px;white-space:pre-wrap;">${escapeHtml(c.comment)}</div>
+        </div>`).join("");
     }
 
     document.addEventListener("mouseup", () => {
