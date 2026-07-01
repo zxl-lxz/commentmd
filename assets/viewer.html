@@ -305,7 +305,18 @@
           showStatus("提交失败：" + e.message, false);
         }
       } else {
-        showStatus("static mode not wired yet", false);
+        const blob = new Blob([JSON.stringify({
+          md_file: DATA.md_file, md_sha256: DATA.md_sha256, comments: state.comments
+        }, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = (DATA.md_name || "review").replace(/\.md$/i, "") + ".comments.json";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        showStatus("已下载 " + a.download + "，把文件路径告诉 Agent", true);
       }
     }
 

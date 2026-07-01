@@ -134,18 +134,31 @@ def _load_viewer_html() -> str:
     return (here.parent / "assets" / "viewer.html").read_text(encoding="utf-8")
 
 
+def write_static_html(md_path: Path, out_html: Path) -> None:
+    data = build_page_data(md_path)
+    template = _load_viewer_html()
+    out_html.write_text(inject_template(template, data, mode="static"), encoding="utf-8")
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="commentmd - comment on a markdown file in the browser.")
     parser.add_argument("md_path", type=Path, help="Path to the markdown file to review.")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT_START)
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument("--static", dest="static_out", type=Path, default=None,
+                        help="Write a standalone HTML to this path and exit (no server).")
     args = parser.parse_args(argv)
 
     md_path = args.md_path.resolve()
     if not md_path.is_file():
         print(f"error: not a file: {md_path}", file=sys.stderr)
         return 1
+
+    if args.static_out is not None:
+        write_static_html(md_path, args.static_out.resolve())
+        print(f"wrote {args.static_out.resolve()}")
+        return 0
 
     data = build_page_data(md_path)
     out_path = resolve_output_path(md_path, args.out).resolve()

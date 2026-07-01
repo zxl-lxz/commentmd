@@ -135,5 +135,21 @@ class WriteOutputJsonTests(unittest.TestCase):
             self.assertEqual(written["comment_count"], 0)
 
 
+from scripts.serve import write_static_html
+
+
+class StaticExportTests(unittest.TestCase):
+    def test_writes_html_with_mode_static(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            md = Path(tmp) / "a.md"
+            md.write_text("# hello", encoding="utf-8")
+            out = Path(tmp) / "a.review.html"
+            write_static_html(md, out)
+            html = out.read_text(encoding="utf-8")
+            self.assertIn('window.__MODE__ = "static"', html)
+            self.assertIn('"md_name": "a.md"', html)
+            self.assertIn("<html", html.lower())
+
+
 if __name__ == "__main__":
     unittest.main()
