@@ -206,7 +206,7 @@
 
     function findQuoteRange(quote, prefix, suffix) {
       const app = document.getElementById("app");
-      const full = app.innerText;
+      const full = app.textContent;
       let idx = -1;
       if (prefix) {
         const anchor = full.indexOf(prefix + quote);
