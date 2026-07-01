@@ -70,13 +70,13 @@ DEFAULT_PORT_START = 3118
 DEFAULT_PORT_END = 3128
 
 
-def write_output_json(payload: dict, out_path: Path, md_sha256_initial: str) -> dict:
+def write_output_json(payload: dict, out_path: Path, md_sha256_initial: str, md_sha256_current: str) -> dict:
     comments = payload.get("comments") or []
     result = {
         "schema_version": 1,
         "md_file": payload.get("md_file", ""),
         "md_sha256": md_sha256_initial,
-        "md_changed_during_review": payload.get("md_sha256") != md_sha256_initial,
+        "md_changed_during_review": md_sha256_current != md_sha256_initial,
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "comment_count": len(comments),
         "comments": comments,
@@ -115,7 +115,11 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_error(400, f"bad json: {e}")
             return
         ctx = self._ctx()
-        result = write_output_json(payload, ctx["out_path"], ctx["md_sha256"])
+        try:
+            current_sha = compute_sha256(ctx["md_path"])
+        except OSError:
+            current_sha = ""  # file gone; treat as changed
+        result = write_output_json(payload, ctx["out_path"], ctx["md_sha256"], current_sha)
         body = json.dumps({"ok": True, "path": str(ctx["out_path"]), "comment_count": result["comment_count"]}).encode("utf-8")
         self.send_response(200)
         self.send_header("content-type", "application/json")
@@ -172,7 +176,7 @@ def main(argv=None) -> int:
         return 1
 
     server = HTTPServer(("127.0.0.1", port), _Handler)
-    server.context = {"html": html, "out_path": out_path, "md_sha256": data["md_sha256"]}  # type: ignore[attr-defined]
+    server.context = {"html": html, "out_path": out_path, "md_sha256": data["md_sha256"], "md_path": md_path}  # type: ignore[attr-defined]
 
     url = f"http://127.0.0.1:{port}/"
     print(f"commentmd serving {md_path.name} at {url}")

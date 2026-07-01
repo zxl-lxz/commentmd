@@ -106,33 +106,48 @@ from scripts.serve import write_output_json
 
 
 class WriteOutputJsonTests(unittest.TestCase):
-    def test_writes_schema_and_counts(self):
+    def test_writes_schema_and_counts_when_sha_matches(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "a.comments.json"
             payload = {
                 "md_file": "/x/a.md",
-                "md_sha256": "abc",
                 "comments": [
                     {"id": "c1", "quote": "q", "prefix": "", "suffix": "", "comment": "hi",
                      "created_at": "2026-07-01T00:00:00Z"},
                 ],
             }
-            result = write_output_json(payload, out, md_sha256_initial="abc")
+            result = write_output_json(payload, out, md_sha256_initial="abc", md_sha256_current="abc")
             written = json.loads(out.read_text())
             self.assertEqual(written["schema_version"], 1)
             self.assertEqual(written["comment_count"], 1)
             self.assertFalse(written["md_changed_during_review"])
+            self.assertEqual(written["md_sha256"], "abc")
             self.assertEqual(written["comments"][0]["quote"], "q")
             self.assertEqual(result, written)
 
-    def test_flags_sha_mismatch(self):
+    def test_flags_sha_mismatch_when_current_differs(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "a.comments.json"
-            payload = {"md_file": "/x/a.md", "md_sha256": "def", "comments": []}
-            write_output_json(payload, out, md_sha256_initial="abc")
+            payload = {"md_file": "/x/a.md", "comments": []}
+            write_output_json(payload, out, md_sha256_initial="abc", md_sha256_current="def")
             written = json.loads(out.read_text())
             self.assertTrue(written["md_changed_during_review"])
             self.assertEqual(written["comment_count"], 0)
+
+    def test_detects_real_file_mutation(self):
+        """End-to-end: capture sha, mutate file, re-hash, verify flag is True."""
+        with tempfile.TemporaryDirectory() as tmp:
+            md = Path(tmp) / "plan.md"
+            md.write_text("# original\n", encoding="utf-8")
+            initial = compute_sha256(md)
+            md.write_text("# original\n\nappended line\n", encoding="utf-8")
+            current = compute_sha256(md)
+            self.assertNotEqual(initial, current)
+            out = Path(tmp) / "plan.comments.json"
+            payload = {"md_file": str(md), "comments": []}
+            write_output_json(payload, out, md_sha256_initial=initial, md_sha256_current=current)
+            written = json.loads(out.read_text())
+            self.assertTrue(written["md_changed_during_review"])
 
 
 from scripts.serve import write_static_html
