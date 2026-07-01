@@ -21,7 +21,7 @@ Agents write a lot of Markdown. Getting human feedback back into the agent is us
 Clone anywhere:
 
 ```bash
-git clone https://github.com/<you>/commentmd.git ~/code/commentmd
+git clone https://github.com/zxl-lxz/commentmd.git ~/code/commentmd
 ```
 
 Optionally symlink into your agent's skills directory so it can be invoked as a slash command:
