@@ -108,7 +108,10 @@
       const range = sel.getRangeAt(0);
       const app = document.getElementById("app");
       if (!app.contains(range.startContainer) || !app.contains(range.endContainer)) return null;
-      const exact = sel.toString();
+      // Use range.toString() (pure text-node concatenation) so it matches
+      // app.textContent. Selection.toString() inserts \t/\n for tables and
+      // breaks later indexOf lookups in findQuoteRange/renderHighlights.
+      const exact = range.toString();
       if (!exact.trim()) return null;
       const startOffset = nodeOffsetInApp(range.startContainer, range.startOffset);
       const fullText = getAppText();
