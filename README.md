@@ -22,17 +22,18 @@ Agents write a lot of Markdown. Getting human feedback back into the agent is us
 
 ## Install
 
-Clone anywhere:
+The easiest way — via [`npx skills`](https://github.com/vercel-labs/skills):
+
+```bash
+npx skills add https://github.com/zxl-lxz/commentmd
+```
+
+Or clone anywhere and symlink the skill directory:
 
 ```bash
 git clone https://github.com/zxl-lxz/commentmd.git ~/code/commentmd
-```
-
-Optionally symlink into your agent's skills directory so it can be invoked as a slash command:
-
-```bash
 mkdir -p ~/.agents/skills
-ln -sfn ~/code/commentmd ~/.agents/skills/commentmd
+ln -sfn ~/code/commentmd/skills/commentmd ~/.agents/skills/commentmd
 ```
 
 Requires Python 3.9+.
@@ -42,7 +43,7 @@ Requires Python 3.9+.
 ### From the terminal
 
 ```bash
-python3 scripts/serve.py path/to/plan.md
+python3 skills/commentmd/scripts/serve.py path/to/plan.md
 ```
 
 Your browser opens. Select text → click **+ 评论** → type a comment → save. Repeat. Click **完成评论** when done. The tool writes `path/to/plan.comments.json` next to the source and exits.
@@ -62,7 +63,7 @@ The agent then reads `path/to/plan.comments.json` and responds to each comment.
 Write a standalone HTML instead of starting a server:
 
 ```bash
-python3 scripts/serve.py path/to/plan.md --static /tmp/review.html
+python3 skills/commentmd/scripts/serve.py path/to/plan.md --static /tmp/review.html
 ```
 
 Open the HTML in a browser. Submitting downloads the JSON as a file.
@@ -107,7 +108,7 @@ Each comment carries a `quote` plus 32-char `prefix` / `suffix` anchors — a si
 ## CLI reference
 
 ```
-python3 scripts/serve.py <md_path> [OPTIONS]
+python3 skills/commentmd/scripts/serve.py <md_path> [OPTIONS]
 
 Options:
   --port N           Starting port (default 3118). Scans up to 3128.

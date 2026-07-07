@@ -68,19 +68,21 @@
 
 ```
 commentmd/
-├── SKILL.md                # Skill 清单，供支持该约定的 Agent 运行时发现
-├── scripts/
-│   └── serve.py            # HTTP server + 静态导出模式
-├── assets/
-│   └── viewer.html         # 单文件前端
+├── skills/
+│   └── commentmd/             # 供 `npx skills add` 抓取的完整 skill 目录
+│       ├── SKILL.md           # Skill 清单，供支持该约定的 Agent 运行时发现
+│       ├── scripts/
+│       │   └── serve.py       # HTTP server + 静态导出模式
+│       └── assets/
+│           └── viewer.html    # 单文件前端
 ├── tests/
 │   ├── fixtures/sample.md
-│   └── test_helpers.py     # 纯函数单元测试
+│   └── test_helpers.py        # 纯函数单元测试
 └── docs/
-    └── design.md           # 本文件
+    └── design.md              # 本文件
 ```
 
-安装到 `~/.agents/skills/commentmd/`（推荐做 symlink，便于开发）。
+安装到 `~/.agents/skills/commentmd/`（推荐 `npx skills add`，或手动 `ln -sfn ~/code/commentmd/skills/commentmd ~/.agents/skills/commentmd` 便于开发）。
 
 ## 4. 服务端（`scripts/serve.py`）
 
