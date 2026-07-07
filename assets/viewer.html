@@ -15,7 +15,9 @@
     header #counter { font-size: 13px; color: #666; }
     header button { background: #2563eb; color: #fff; border: 0; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; }
     header button:hover { background: #1d4ed8; }
-    .layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; align-items: start; }
+    .layout { display: grid; grid-template-columns: 240px minmax(0, 1fr) 360px; align-items: start; }
+    @media (max-width: 1100px) { .layout { grid-template-columns: 200px minmax(0, 1fr) 320px; } }
+    @media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr) 320px; } #outline { display: none; } }
     #app { padding: 32px 40px; line-height: 1.75; background: #fff; overflow-wrap: break-word; position: relative; }
     #app h1, #app h2, #app h3 { line-height: 1.3; }
     #app pre { background: #f6f8fa; padding: 12px; border-radius: 6px; overflow-x: auto; }
@@ -26,9 +28,24 @@
     #highlights { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
     #highlights .hl { position: absolute; background: rgba(251, 191, 36, 0.28); border-bottom: 2px solid rgba(217, 119, 6, 0.55); border-radius: 2px; transition: background 0.15s; }
     #highlights .hl.active { background: rgba(251, 191, 36, 0.55); }
+    #outline { background: #fafafa; border-right: 1px solid #e5e5e5; padding: 20px 12px 20px 16px; position: sticky; top: 53px; height: calc(100vh - 53px); overflow-y: auto; }
+    #outline h2 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: #888; }
+    #outline ul { list-style: none; margin: 0; padding: 0; }
+    #outline li { margin: 0; }
+    #outline a { display: block; padding: 4px 8px; border-radius: 4px; color: #444; font-size: 13px; text-decoration: none; line-height: 1.35; border-left: 2px solid transparent; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #outline a:hover { background: #f0f0f0; color: #111; }
+    #outline a.active { background: #eef2ff; color: #1d4ed8; border-left-color: #2563eb; }
+    #outline .empty { color: #999; font-size: 13px; padding: 4px 8px; }
     #sidebar { background: #fafafa; border-left: 1px solid #e5e5e5; padding: 20px 16px; position: sticky; top: 53px; height: calc(100vh - 53px); overflow-y: auto; }
     #sidebar h2 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: #888; }
     #sidebar .empty { color: #999; font-size: 13px; }
+    #sidebar .card textarea.edit-input { width: 100%; box-sizing: border-box; font: inherit; padding: 8px; border: 1px solid #ccc; border-radius: 4px; resize: vertical; min-height: 96px; }
+    #sidebar .card .edit-row { display: flex; gap: 6px; justify-content: flex-end; margin-top: 8px; font-size: 12px; }
+    #sidebar .card .edit-row button { border: 0; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+    #sidebar .card .edit-row button.primary { background: #2563eb; color: #fff; }
+    #sidebar .card .edit-row button.primary:hover { background: #1d4ed8; }
+    #sidebar .card .edit-row button.ghost { background: #eee; color: #333; }
+    #sidebar .card .edit-row button.ghost:hover { background: #e0e0e0; }
     #status { position: fixed; bottom: 20px; right: 20px; padding: 12px 16px; background: #10b981; color: #fff; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); display: none; z-index: 100; }
     .modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center; z-index: 200; }
     .modal { background: #fff; border-radius: 8px; padding: 24px; width: 360px; box-shadow: 0 20px 60px rgba(0,0,0,0.2); }
@@ -50,6 +67,10 @@
     <button id="finish">完成评论</button>
   </header>
   <div class="layout">
+    <aside id="outline">
+      <h2>大纲</h2>
+      <div id="outline-list"><div class="empty">无标题</div></div>
+    </aside>
     <main id="app"></main>
     <aside id="sidebar">
       <h2>评论</h2>
@@ -63,7 +84,7 @@
     const MODE = window.__MODE__ || "server";
     const PREFIX_LEN = 32;
     const SUFFIX_LEN = 32;
-    const state = { comments: [], nextId: 1 };
+    const state = { comments: [], nextId: 1, editingId: null };
     let activeSelection = null;   // { range, exact, prefix, suffix }
     let floater = null;
 
@@ -79,6 +100,85 @@
     const highlightsEl = document.createElement("div");
     highlightsEl.id = "highlights";
     appEl.appendChild(highlightsEl);
+
+    function slugify(text) {
+      return String(text || "").trim().toLowerCase()
+        .replace(/[\s]+/g, "-")
+        .replace(/[^\p{Letter}\p{Number}\-_]/gu, "")
+        .replace(/-+/g, "-")
+        .replace(/^-|-$/g, "") || "section";
+    }
+
+    function buildOutline() {
+      const list = document.getElementById("outline-list");
+      const headings = appEl.querySelectorAll("h1, h2, h3, h4");
+      if (!headings.length) {
+        list.innerHTML = '<div class="empty">无标题</div>';
+        return [];
+      }
+      const usedIds = new Set();
+      const items = [];
+      let minLevel = 6;
+      headings.forEach((h) => {
+        const level = parseInt(h.tagName.slice(1), 10);
+        if (level < minLevel) minLevel = level;
+        if (!h.id) {
+          let base = slugify(h.textContent);
+          let id = base;
+          let i = 2;
+          while (usedIds.has(id) || document.getElementById(id)) {
+            id = base + "-" + i++;
+          }
+          h.id = id;
+        }
+        usedIds.add(h.id);
+        items.push({ id: h.id, text: h.textContent, level, el: h });
+      });
+      list.innerHTML = '<ul>' + items.map((it) => {
+        const indent = (it.level - minLevel) * 12;
+        return `<li><a href="#${it.id}" data-id="${it.id}" style="padding-left:${8 + indent}px;">${escapeHtml(it.text)}</a></li>`;
+      }).join("") + '</ul>';
+      list.querySelectorAll("a").forEach((a) => {
+        a.addEventListener("click", (e) => {
+          e.preventDefault();
+          const id = a.getAttribute("data-id");
+          const target = document.getElementById(id);
+          if (!target) return;
+          const rect = target.getBoundingClientRect();
+          window.scrollTo({ top: window.scrollY + rect.top - 70, behavior: "smooth" });
+          history.replaceState(null, "", "#" + id);
+        });
+      });
+      return items;
+    }
+
+    const outlineItems = buildOutline();
+
+    function updateOutlineActive() {
+      if (!outlineItems.length) return;
+      const threshold = 90;
+      let activeId = outlineItems[0].id;
+      for (const it of outlineItems) {
+        const top = it.el.getBoundingClientRect().top;
+        if (top - threshold <= 0) activeId = it.id;
+        else break;
+      }
+      const list = document.getElementById("outline-list");
+      list.querySelectorAll("a").forEach((a) => {
+        a.classList.toggle("active", a.getAttribute("data-id") === activeId);
+      });
+    }
+
+    let _outlineTick = false;
+    window.addEventListener("scroll", () => {
+      if (_outlineTick) return;
+      _outlineTick = true;
+      requestAnimationFrame(() => {
+        _outlineTick = false;
+        updateOutlineActive();
+      });
+    }, { passive: true });
+    updateOutlineActive();
 
     function updateCounter() {
       document.getElementById("counter").textContent = state.comments.length + " 条评论";
@@ -167,14 +267,15 @@
       hideFloater();
       const rects = selection.range.getClientRects();
       const last = rects[rects.length - 1];
+      const POP_WIDTH = 380;
       const pop = document.createElement("div");
-      pop.style.cssText = "position:absolute;z-index:60;background:#fff;border:1px solid #d0d0d0;border-radius:6px;padding:10px;width:280px;box-shadow:0 4px 16px rgba(0,0,0,0.15);";
+      pop.style.cssText = `position:absolute;z-index:60;background:#fff;border:1px solid #d0d0d0;border-radius:6px;padding:12px;width:${POP_WIDTH}px;box-shadow:0 4px 16px rgba(0,0,0,0.15);`;
       pop.style.top = (window.scrollY + last.bottom + 6) + "px";
-      pop.style.left = (window.scrollX + Math.max(20, last.right - 280)) + "px";
+      pop.style.left = (window.scrollX + Math.max(20, last.right - POP_WIDTH)) + "px";
       pop.innerHTML = `
-        <div style="font-size:12px;color:#666;margin-bottom:6px;">${escapeHtml(truncate(selection.exact, 60))}</div>
-        <textarea rows="3" style="width:100%;box-sizing:border-box;font: inherit;padding:6px;border:1px solid #ccc;border-radius:4px;resize:vertical;" placeholder="写下你的意见..."></textarea>
-        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px;">
+        <div style="font-size:12px;color:#666;margin-bottom:8px;">${escapeHtml(truncate(selection.exact, 80))}</div>
+        <textarea rows="6" style="width:100%;box-sizing:border-box;font: inherit;padding:8px;border:1px solid #ccc;border-radius:4px;resize:vertical;min-height:120px;" placeholder="写下你的意见..."></textarea>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;">
           <button data-act="cancel" style="background:#eee;border:0;padding:6px 12px;border-radius:4px;cursor:pointer;">取消</button>
           <button data-act="save" style="background:#2563eb;color:#fff;border:0;padding:6px 12px;border-radius:4px;cursor:pointer;">保存</button>
         </div>`;
@@ -213,17 +314,56 @@
         list.innerHTML = '<div class="empty">选中文本以添加评论</div>';
         return;
       }
-      list.innerHTML = state.comments.map((c) => `
-        <div class="card" data-id="${c.id}" style="background:#fff;border:1px solid #e5e5e5;border-radius:6px;padding:10px;margin-bottom:10px;cursor:pointer;">
-          <div style="font-size:12px;color:#666;border-left:3px solid #fbbf24;padding-left:8px;margin-bottom:6px;">${escapeHtml(truncate(c.quote, 80))}</div>
-          <div class="body" style="font-size:14px;white-space:pre-wrap;">${escapeHtml(c.comment)}</div>
-          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px;font-size:12px;">
-            <button data-act="edit" style="background:transparent;border:0;color:#2563eb;cursor:pointer;">编辑</button>
-            <button data-act="delete" style="background:transparent;border:0;color:#ef4444;cursor:pointer;">删除</button>
-          </div>
-        </div>`).join("");
+      list.innerHTML = state.comments.map((c) => {
+        const editing = state.editingId === c.id;
+        const quoteBar = `<div style="font-size:12px;color:#666;border-left:3px solid #fbbf24;padding-left:8px;margin-bottom:6px;">${escapeHtml(truncate(c.quote, 80))}</div>`;
+        if (editing) {
+          return `
+            <div class="card editing" data-id="${c.id}" style="background:#fff;border:1px solid #93c5fd;border-radius:6px;padding:10px;margin-bottom:10px;">
+              ${quoteBar}
+              <textarea class="edit-input" data-role="edit-textarea">${escapeHtml(c.comment)}</textarea>
+              <div class="edit-row">
+                <button class="ghost" data-act="edit-cancel">取消</button>
+                <button class="primary" data-act="edit-save">保存</button>
+              </div>
+            </div>`;
+        }
+        return `
+          <div class="card" data-id="${c.id}" style="background:#fff;border:1px solid #e5e5e5;border-radius:6px;padding:10px;margin-bottom:10px;cursor:pointer;">
+            ${quoteBar}
+            <div class="body" style="font-size:14px;white-space:pre-wrap;">${escapeHtml(c.comment)}</div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px;font-size:12px;">
+              <button data-act="edit" style="background:transparent;border:0;color:#2563eb;cursor:pointer;">编辑</button>
+              <button data-act="delete" style="background:transparent;border:0;color:#ef4444;cursor:pointer;">删除</button>
+            </div>
+          </div>`;
+      }).join("");
       list.querySelectorAll(".card").forEach((el) => {
         const id = el.getAttribute("data-id");
+        const editing = el.classList.contains("editing");
+        if (editing) {
+          const ta = el.querySelector("[data-role=edit-textarea]");
+          if (ta) {
+            ta.focus();
+            const len = ta.value.length;
+            try { ta.setSelectionRange(len, len); } catch (_) {}
+          }
+          el.querySelector("[data-act=edit-save]").addEventListener("click", (e) => {
+            e.stopPropagation();
+            const text = (ta ? ta.value : "").trim();
+            if (!text) { if (ta) ta.focus(); return; }
+            const c = state.comments.find((x) => x.id === id);
+            if (c) c.comment = text;
+            state.editingId = null;
+            renderSidebar();
+          });
+          el.querySelector("[data-act=edit-cancel]").addEventListener("click", (e) => {
+            e.stopPropagation();
+            state.editingId = null;
+            renderSidebar();
+          });
+          return;
+        }
         el.addEventListener("click", (e) => {
           const act = e.target.getAttribute && e.target.getAttribute("data-act");
           if (act === "edit") { editComment(id); e.stopPropagation(); return; }
@@ -289,12 +429,9 @@
     function editComment(id) {
       const c = state.comments.find((x) => x.id === id);
       if (!c) return;
-      const next = prompt("编辑评论：", c.comment);
-      if (next === null) return;
-      const trimmed = next.trim();
-      if (!trimmed) return;
-      c.comment = trimmed;
+      state.editingId = id;
       renderSidebar();
+      scrollSidebarTo(id);
     }
 
     function deleteComment(id) {
@@ -303,6 +440,7 @@
       state.comments.splice(idx, 1);
       state.comments.forEach((c, i) => { c.id = "c" + (i + 1); });
       state.nextId = state.comments.length + 1;
+      state.editingId = null;
       updateCounter();
       renderSidebar();
       renderHighlights();
